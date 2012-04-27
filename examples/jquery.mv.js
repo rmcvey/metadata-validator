@@ -1,8 +1,7 @@
 $.fn.mv_form = function(jobj)
 {
-	var errors = new Array();
 	var json = eval(jobj);
-	
+	var errors = [];
 	$(this).submit(function(){
 		var is_good = true;
 		var elems = $(this).find("input[type!='submit']");
@@ -40,7 +39,7 @@ $.fn.mv_form = function(jobj)
 					}
 				}
 				var required = validators.required;
-				if(required !== null)
+				if(required)
 				{
 					if(elem.val() == "" || elem.val() == null)
 					{
@@ -57,7 +56,7 @@ $.fn.mv_form = function(jobj)
 			{
 				html_errors += "<li>"+errors[i]+"</li>";
 			}
-			$('#error_list').html("").html(html_errors);
+			$('#error_list').html("").html(html_errors).parent().show();
 			is_good = false;
 		}
 		return is_good;

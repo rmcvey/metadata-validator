@@ -1,4 +1,5 @@
 <?php
+require 'smart_field.php';
 /**
 *	Metadata Validator provides automatic data validation by processing 
 *	well formed JSON COMMENTS containing validation rules
@@ -22,21 +23,21 @@ class metadata_validator
 	/*
 	*	Needs to be updated to use passed credentials
 	*/
-	private function _init()
+	private function _init($credentials)
 	{
-		$this->user 			= //YOUR USERNAME;
-		$this->pass			= //YOUR_PASSWORD;
-		$this->host			= //YOUR_HOSTNAME;
-		$this->safe_nullables		= array("date", "datetime");
+		$this->user 		= $credentials['user'];
+		$this->pass			= $credentials['password'];
+		$this->host			= $credentials['host'];
+		$this->safe_nullables	= array("date", "datetime");
 		$this->response			= array('data' => NULL, 'errors' => NULL);
 	}
 	
 	/**
 	*	@param mode dictates whether or not nulls are checked and primary
 	*/
-	public function __construct($database, $table = null, $mode="insert")
+	public function __construct($credentials, $database, $table = null, $mode="insert")
 	{
-		$this->_init();
+		$this->_init($credentials);
 		$this->db		= $database;
 		$this->mode		= $mode;
 		
@@ -47,8 +48,7 @@ class metadata_validator
 		try{
 			$this->_connect();
 		}catch(Exception $e){
-			echo "\nError in " . __METHOD__ . ':\n ' 
-			. $e->getMessage();
+			trigger_error("\nError in " . __METHOD__ . ': ' . $e->getMessage());
 		}
 	}
 	
@@ -66,14 +66,14 @@ class metadata_validator
 		try{
 			$this->_connect();
 		}catch(Exception $e){
-			echo $e->getMessage();
+			trigger_error("\nError in " . __METHOD__ . ': ' . $e->getMessage());
 		}
 		return $this;
 	}
 	
 	private function _connect()
 	{
-		$this->connection = mysql_connect($this->host, $this->user, $this->pass);
+		$this->connection = @mysql_connect($this->host, $this->user, $this->pass);
 		if(!$this->connection){
 			throw new Exception("Could not connect to database server: '{$this->host}'\n");
 		}
@@ -99,24 +99,25 @@ class metadata_validator
 	*/
 	public function build_column_map($table=null)
 	{
-		if($table)
+		if(!is_null($table))
+		{
 			$this->set_table($table);
+		}
 		$result = $this->execute("SHOW FULL COLUMNS FROM {$this->table}");
 		
-		$cols = null;
 		if($result)
 		{
 			$cols = array();
 			//important to have an associative array here
 			while($row = mysql_fetch_assoc($result)){
-				$cols[]=$row;
+				$cols[] = new smart_field($row);
 			}
 			$this->cols = $cols;
 		}
 		else
 		{
 			//we won't be able to do anything if we don't have the columns
-			exit(mysql_error());
+			trigger_error("MYSQL ERROR, unable to continue: " . mysql_error());
 		}
 		return $this;
 	}
@@ -129,43 +130,31 @@ class metadata_validator
 	*/
 	public function get_column_map()
 	{
-		if(is_array($this->cols))
+		if(is_array($this->cols) && !empty($this->cols))
 		{
 			return $this->cols;
 		}
 		else
 		{
-			$this->cols = $this->build_column_map();
+			$this->build_column_map();
 			return $this->cols;
 		}
 	}
-	
-	/**
-	*	@access public
-	*	@param $field associative array database result
-	*	@param $as_array decode to object or array, default object
-	*	
-	*	This works on a per column basis
-	*/
-	public function get_json_validators($field, $as_array=false)
-	{
-		return json_decode($field['Comment'], $as_array);
-	}
-
 
 	/**
 	*	@access public
 	*
-	*	This returns the clientside JSON object (adds "required")
+	*	This returns the full JSON validators object (adds "required"), useful for passing to javascript
 	*/
 	public function get_all_json_validators()
 	{
 		$return = array();
-		foreach($this->get_column_map() as $column)
+		$col_map = $this->get_column_map();
+		foreach($col_map as $column)
 		{
-			$validators = $this->get_json_validators($column);
-			$validators->validators->required = $this->is_required($column);
-			$return[] = array($column["Field"], $validators->validators);
+			$validators = $column->get_json_validators();
+			$validators->validators->required = ($column->is_required() && !$column->is_primary());
+			$return[] = array($column->get_type(), $validators->validators);
 		}
 		return json_encode($return);
 	}
@@ -178,9 +167,9 @@ class metadata_validator
 	private function get_column_names()
 	{
 		$names = array();
-		foreach($this->cols as $col)
+		foreach($this->cols as $column)
 		{
-			$names[$col["Field"]] = NULL;
+			$names[$column->get_field()] = NULL;
 		}
 		return $names;
 	}
@@ -196,11 +185,12 @@ class metadata_validator
 	*/
 	public function validate($data)
 	{
-		$size = sizeof($data);
-		if(!$this->cols)
+		$size = count($data);
+		if(empty($this->cols))
 		{
 			$this->build_column_map();
-		}	
+		}
+		// checking that number of columns isn't less than our number of nullable columns (required columns) if we are inserting
 		if($size < $this->num_nullable_columns() && $this->mode != "insert")
 		{
 			$this->response['errors'] []= $this->get_col_count_error($size);
@@ -209,8 +199,8 @@ class metadata_validator
 		else
 		{	
 			$column_names 	= $this->get_column_names();
-			$col_keys	= array_keys( $column_names );
-			$data_keys	= array_keys( $data );
+			$col_keys		= array_keys( $column_names );
+			$data_keys		= array_keys( $data );
 			$differences	= array_diff( $col_keys, $data_keys );
 			$intersections	= array_intersect( $col_keys, $data_keys);
 			
@@ -221,7 +211,7 @@ class metadata_validator
 			foreach($differences as $index => $item)
 			{
 				$field = $this->cols[$index];
-				if(!$this->is_nullable($field) && !$this->is_primary($field) && !$this->has_default($field))
+				if(!$field->is_nullable() && !$field->is_primary() && !$field->has_default())
 				{
 					$this->response["errors"] []= $this->get_not_nullable_error($item);
 				}
@@ -233,15 +223,14 @@ class metadata_validator
 			foreach($intersections as $index => $item)
 			{
 				$row_value  	= $data[$item];
-				$col		= $this->cols[$index];
-				$col_type 	= $this->get_field_type($col);
-				$rules 		= $this->get_json_validators($col);
-				$field_length 	= mb_strlen((string) $field, '8bit');
-				$max_length 	= $this->get_field_length( $col );
+				$col			= $this->cols[$index];
+				$rules 			= $col->get_json_validators();
+				$field_length 	= mb_strlen((string) $col->get_field(), '8bit');
+				$max_length 	= $col->get_field_length();
 				
 				//produces an is_* function using a datatype map between mysql and php
-				$php_type 		= $this->mysql_type_to_php($col_type);
-				$dynamic_is_type_func 	= "is_$php_type";
+				$php_type 		= $this->mysql_type_to_php($col->get_type());
+				$dynamic_is_type_func = "is_$php_type";
 				$value_type		= gettype($row_value);
 				
 				/**
@@ -253,10 +242,10 @@ class metadata_validator
 				$this->check_empty_not_nullable_no_default_and_not_time($row_value, $col, $data);
 				
 				//Error if data type different from column type and not primary key (could be null, would fail), or that it's the same type as the primary key
-				$this->check_istype_if_not_primary_xor_empty($col, $value_type, $col_type, $row_value, $dynamic_is_type_func);
+				$this->check_istype_if_not_primary_xor_empty($col, $value_type, $row_value, $dynamic_is_type_func);
 				
 				//Check lengths against column maximums
-				$this->check_length_less_than_colmax($max_length, $field_length, $col, $col_type);
+				$this->check_length_less_than_colmax($max_length, $field_length, $col);
 				
 				//Formats passed date into mysql format
 				$this->check_datetime_formatting($col, $row_value);
@@ -280,28 +269,28 @@ class metadata_validator
 	/**
 	*	If the field is datetime, check that it is formatted correctly
 	*/
-	private function check_datetime_formatting($col, &$row_value)
+	private function check_datetime_formatting($column, &$row_value)
 	{
-		if($this->is_datetime($col) && !empty($row_value) && !preg_match("/^\d{4}-\d{2}-\d{2} [0-2][0-3]:[0-5][0-9]:[0-5][0-9]$/", $row_value))
+		if($column->is_datetime() && !empty($row_value) && !preg_match("/^\d{4}-\d{2}-\d{2} [0-2][0-3]:[0-5][0-9]:[0-5][0-9]$/", $row_value))
 		{
 			//converts a formatted date to mysql format
 			$fixed_time = date("Y-m-d H:i:s", strtotime($row_value));
 			if(preg_match("/^\d{4}-\d{2}-\d{2} [0-2][0-3]:[0-5][0-9]:[0-5][0-9]$/", $fixed_time))
 			{
-				$this->response['errors'] []= $this->get_datetime_formatting_error($col["Field"], $row_value, $fixed_time);
+				$this->response['errors'] []= $this->get_datetime_formatting_error($column->get_field(), $row_value, $fixed_time);
 			}
 			$row_value = $fixed_time;
 		}
 	}
 	
-	private function check_enumerable($row_value, $col)
+	private function check_enumerable($row_value, $column)
 	{
-		$valid = $this->get_enum_values($col);
+		$valid = $column->get_enum_values();
 		if($valid)
 		{
 			if(!in_array("'$row_value'", $valid))
 			{
-				$this->response['errors'][] = $this->get_enum_error($row_value, $valid, $col["Field"]);
+				$this->response['errors'][] = $this->get_enum_error($row_value, $valid, $column->get_field());
 			}
 		}
 	}
@@ -309,11 +298,11 @@ class metadata_validator
 	/**
 	*	Check that the length of value is less than the column max ( e.g. VARCHAR(128) )
 	*/
-	private function check_length_less_than_colmax($max_length, $field_length, $col, $col_type)
+	private function check_length_less_than_colmax($max_length, $field_length, $column)
 	{
-		if($max_length && $field_length > $max_length && !in_array($col_type, $safe_nullables))
+		if($max_length && $field_length > $max_length && !$column->is_safe_nullable())
 		{
-			$this->response['errors'] []= $this->get_length_error($field_length, $max_length, $col["Field"] );
+			$this->response['errors'] []= $this->get_length_error($field_length, $max_length, $column->get_field());
 		}
 	}
 	
@@ -322,15 +311,15 @@ class metadata_validator
 	* 	throw a not nullable error.
 	*	Otherwise if the field is not empty and it is one of time types (date, datetime, timestamp) and give it a date value
 	*/
-	private function check_empty_not_nullable_no_default_and_not_time(&$row_value, $col, &$data)
+	private function check_empty_not_nullable_no_default_and_not_time(&$row_value, $column, &$data)
 	{
-		if(empty($row_value) && !($this->is_nullable($col)) && !in_array($col_type, $this->safe_nullables) && !$this->has_default($col) && !$this->is_primary($col))
+		if(empty($row_value) && !($column->is_nullable()) && !$column->is_safe_nullable() && !$column->has_default() && !$column->is_primary())
 		{
 			$this->response["errors"] []= $this->get_not_nullable_error($col["Field"]);
 		}
-		else if(empty($row_value) && in_array($col_type, $this->safe_nullables))
+		else if(empty($row_value) && $column->is_safe_nullable())
 		{
-			$data[$col["Field"]] = date("Y-m-d H:i:s");
+			$data[$column->get_field()] = date("Y-m-d H:i:s");
 		}
 	}
 	
@@ -338,11 +327,11 @@ class metadata_validator
 	*	Run is_*() against row value if it is not primary or empty
 	*
 	*/
-	private function check_istype_if_not_primary_xor_empty($col, $value_type, $col_type, $row_value, $dynamic_is_type_func)
+	private function check_istype_if_not_primary_xor_empty($column, $value_type, $row_value, $dynamic_is_type_func)
 	{
-		if(is_callable($dynamic_is_type_func) && !$dynamic_is_type_func($row_value) && (!$this->is_primary($col) ^ !empty($row_value)))
+		if(is_callable($dynamic_is_type_func) && !$dynamic_is_type_func($row_value) && (!$column->is_primary() ^ !empty($row_value)))
 		{			
-			$this->response['errors'] []= $this->get_datatype_mismatch_error($col["Field"], $value_type, $col_type, $row_value);
+			$this->response['errors'] []= $this->get_datatype_mismatch_error($column->get_field(), $value_type, $column->get_type(), $row_value);
 		}
 	}
 	
@@ -351,8 +340,16 @@ class metadata_validator
 	*/
 	protected function process_json_validators($column, $row_value, $validators)
 	{
-		$checks = $validators->validators;
-		$pattern = $checks->pattern;
+		if(property_exists($validators, 'validators'))
+		{
+			$checks = $validators->validators;
+			$pattern = $checks->pattern;
+		}
+		else
+		{
+			$checks = $pattern = null;
+		}
+		
 		if($pattern)
 		{
 			if(is_object($pattern))
@@ -371,18 +368,22 @@ class metadata_validator
 				}
 			}
 		}
-		if($checks->minlength)
+		
+		if($checks)
 		{
-			if(strlen($row_value) < $checks->minlength)
+			if($checks->minlength)
 			{
-				$this->response['errors'] []= $this->error("Field: " . $column["Field"] . ": $row_value is too short, must be at least ".$checks->minlength . " long [USER_DEFINED]");
+				if(strlen($row_value) < $checks->minlength)
+				{
+					$this->response['errors'] []= $this->error("Field: " . $column["Field"] . ": $row_value is too short, must be at least ".$checks->minlength . " long [USER_DEFINED]");
+				}
 			}
-		}
-		if($checks->maxlength)
-		{
-			if(strlen($row_value) > $checks->maxlength)
+			if($checks->maxlength)
 			{
-				$this->response['errors'] []= $this->error("Field: " . $column["Field"] . ": $row_value is too long, must be less than ".$checks->maxlength . " long [USER_DEFINED]");
+				if(strlen($row_value) > $checks->maxlength)
+				{
+					$this->response['errors'] []= $this->error("Field: " . $column["Field"] . ": $row_value is too long, must be less than ".$checks->maxlength . " long [USER_DEFINED]");
+				}
 			}
 		}
 		/**
@@ -417,7 +418,7 @@ class metadata_validator
 		foreach($params as $param)
 		{
 			//Handle functions as parameters, useful for date() functions and string mutators
-			if($param->func)
+			if(property_exists($param, 'func'))
 			{
 				$recursed_value = $this->exec_transform_function($param->func, $row_value);
 				array_push($parameters, $recursed_value);
@@ -445,45 +446,6 @@ class metadata_validator
 		return $row_value;
 	}
 	
-	protected function get_enum_values($col)
-	{
-		$enum = $col["Type"];
-		$valid = array();
-		if(strstr($enum, "enum("))
-		{
-			$off  = strpos($enum,"(");
-			$enum = substr($enum, $off+1, strlen($enum)-$off-2);
-			$values = explode(",",$enum);
-
-			for( $n = 0; $n < count($values); $n++) {
-			  	$val = substr( $values[$n], 1, strlen($values[$n])-2);
-				$val = str_replace("'","",$val);
-				array_push( $valid, $val );
-			}
-			return $values;
-		}
-		else
-		{
-			return null;
-		}
-	}
-	
-	/**
-	*	parse the max data length from the field type
-	*/
-	protected function get_field_length($field)
-	{
-		return preg_replace("/[^0-9]/", '', $field["Type"]);
-	}
-	
-	/**
-	*	parse data type (e.g. removes (255) from int(255) )
-	*/
-	protected function get_field_type($field)
-	{
-		return preg_replace("/[^A-Za-z]/", "", trim($field["Type"]));
-	}
-	
 	/**
 	*	Maps native mysql data types to php readable types
 	*/
@@ -496,33 +458,23 @@ class metadata_validator
 			'bit'		=> 'bool',
 			'varchar' 	=> 'string',
 			'char'		=> 'string',
-			'enum'		=> 'array'
+			'enum'		=> 'array',
+			'datetime'  => 'string'
 		);
-		return $type_map[$mysql_type];
+		return @$type_map[$mysql_type];
 	}
+	
 	protected function num_nullable_columns()
 	{
 		$count = 0;
-		foreach($this->cols as $col)
+		foreach($this->cols as $column)
 		{
-			if($this->is_nullable($col))
+			if($column->is_nullable())
+			{
 				$count++;
+			}
 		}
 		return $count;
-	}
-	
-	protected function is_required($col)
-	{
-		return (!$this->is_nullable($col) && !$this->is_primary($col) && !$this->has_default($col) && !in_array($col["Type"], $this->safe_nullables));
-	}
-	
-	/**
-	*	Retrieves a special null value stored in column comment
-	*/
-	protected function get_column_special_null($column)
-	{
-		$json = json_decode($column["Comment"]);
-		return ($json->{'special_null'} !== NULL) ? $json->{'special_null'} : "NULL";
 	}
 	
 	/**
@@ -542,31 +494,6 @@ class metadata_validator
 			}
 		}
 		return 'NULL';
-	}
-	
-	public function is_nullable($column)
-	{
-		return ($column["Null"] == "YES");
-	}
-	
-	public function is_primary($column)
-	{
-		return ($column["Key"] == "PRI");
-	}
-	
-	public function has_default($column)
-	{
-		return !empty($column["Default"]);
-	}
-	
-	public function is_nullable_datetime($column)
-	{
-		return ($column["Type"] == "datetime" && $column['Null'] == "YES");
-	}
-	
-	public function is_datetime($column)
-	{
-		return ($column["Type"] == "datetime" || $column["Type"] == "date");
 	}
 	
 	public function get_errors()
@@ -634,7 +561,6 @@ class metadata_validator
 	{
 		return mysql_query($query);
 	}
-	
 }
 
 ?>

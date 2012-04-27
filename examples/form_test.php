@@ -1,8 +1,12 @@
 <?php
 
-require_once "../../lib/php/metadata_validator.php";
+require_once "../src/metadata_validator.php";
 //initialize object with database and table names
-$mv	= new metadata_validator("test", "example_table");
+$mv	= new metadata_validator(array(
+	'user' => 'root',
+	'password' => '',
+	'host' => 'localhost'
+),"test", "example_table");
 
 if(isset($_POST) && !empty($_POST))
 {	
@@ -15,13 +19,18 @@ if(isset($_POST) && !empty($_POST))
 	<title>Forms Example</title>
 	<link rel="stylesheet" type="text/css" href="/css/mv.css" />
 	<script type="text/javascript" src="http://ajax.googleapis.com/ajax/libs/jquery/1.4.2/jquery.min.js"></script>
-	<script type="text/javascript" src="mv.jquery.js"></script>
+	<script type="text/javascript" src="jquery.mv.js"></script>
 	<script type="text/javascript">
 		$(document).ready(function(){
 			//look at that! our validators work on the client-side too
 			$('#test_form').mv_form('<?=$mv->get_all_json_validators()?>')
 		});
 	</script>
+	<style type="text/css">
+	.error, .success{
+		display:none;
+	}
+	</style>
 </head>
 <body>
 	<!--  BUILD SUCCESS AND FAILURE MESSAGES -->
@@ -45,12 +54,12 @@ if(isset($_POST) && !empty($_POST))
 	<form id="test_form" action="<?=$_SERVER['REQUEST_URI']?>" method="post">
 		<label>id</label>
 		<input type="text" name="id" value="<?=@$response['data']['id']?>" />
-		<label>controller</label>
-		<input type="text" name="controller" id="controller" value="<?=@$response['data']['controller'] ?>" />
-		<label>action</label>		
-		<input type="text" name="action" value="<?=@$response['data']['action'] ?>" />
-		<label>site</label>
-		<input type="text" name="site" value="<?= @$response['data']['site']?>" />  	
+		<label>event_name</label>
+		<input type="text" name="event_name" id="controller" value="<?=@$response['data']['event_name'] ?>" />
+		<label>city</label>		
+		<input type="text" name="city" value="<?=@$response['data']['city'] ?>" />
+		<label>zip</label>
+		<input type="text" name="zip" value="<?= @$response['data']['zip']?>" />  	
 		<label>date_start</label>
 		<input type="text" name="date_start" value="<?= @$response['data']['date_start']?>" />
 		<label>date_end</label>
