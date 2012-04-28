@@ -1,41 +1,88 @@
 <?php
 
 require_once "../src/metadata_validator.php";
-//initialize object with database and table names
-$mv	= new metadata_validator(array(
+$dsn = array(
 	'user' => 'root',
 	'password' => '',
 	'host' => 'localhost'
-),"test", "example_table");
+);
+$mv	= new metadata_validator($dsn, "test", "example_table");
 
-if(isset($_POST) && !empty($_POST))
+
+$is_post = ($_SERVER['REQUEST_METHOD'] == "POST");
+$inserted = false;
+if($is_post)
 {	
-	//call validate against posted data
 	$response 	= $mv->validate($_POST);
+	if(empty($response['errors']))
+	{
+		@mysql_connect('localhost', 'root', '');
+		mysql_select_db('test');
+		$insert_data = array();
+		foreach($response['data'] as $column => $value)
+		{
+			if(!empty($value))
+			{
+				$insert_data[$column] = $value;
+			}
+		}
+		$query = sprintf(
+			'INSERT INTO test.example_table (%s) VALUES ("%s")', 
+			implode(',', array_keys($insert_data)),
+			implode('", "', array_values($insert_data))
+		);
+		mysql_query($query);
+	}
 }
+
 ?>
 <html>
 <head>
 	<title>Forms Example</title>
-	<link rel="stylesheet" type="text/css" href="/css/mv.css" />
 	<script type="text/javascript" src="http://ajax.googleapis.com/ajax/libs/jquery/1.4.2/jquery.min.js"></script>
 	<script type="text/javascript" src="jquery.mv.js"></script>
 	<script type="text/javascript">
 		$(document).ready(function(){
-			//look at that! our validators work on the client-side too
 			$('#test_form').mv_form('<?=$mv->get_all_json_validators()?>')
 		});
 	</script>
 	<style type="text/css">
-	.error, .success{
-		display:none;
-	}
+		body,html{
+			font-family:Helvetica,Arial,sans-serif;
+			font-size:18px;
+		}
+		label,input{
+			display:block;
+		}
+		input{
+			padding:3px;
+			width:40%;
+		}
+
+		.error, .notice, .success {
+			display:none;
+			float:right;
+			width:45%;
+			border:2px solid #DDDDDD;
+			margin-bottom:1em;
+			padding:0.8em;
+		}
+		.success {
+			background:none repeat scroll 0 0 #E6EFC2;
+			border-color:#C6D880;
+			color:#264409;
+		}
+		.error  {
+			background:none repeat scroll 0 0 #FBE3E4;
+			border-color:#FBC2C4;
+			color:#8A1F11;
+		}
 	</style>
 </head>
 <body>
 	<!--  BUILD SUCCESS AND FAILURE MESSAGES -->
 	
-	<div class="error" style="<? if(is_array($response["errors"])):?>display:block<?else:?>display:none<?endif?>">
+	<div class="error">
 		<h3>Your form had the following errors:</h3>
 		<ul id="error_list">
 		<? if(is_array($response["errors"])):?>	
@@ -46,7 +93,7 @@ if(isset($_POST) && !empty($_POST))
 		</ul>
 	</div>
 	
-	<div class="success" style="<? if(isset($_POST) && !is_array($response["errors"])):?> display:block <?else:?> display:none <?endif?>">
+	<div class="success" <?=($is_post && $inserted) ? 'style="display:block;"' : ''?>>
 		<h3>Your form has successfully been submitted</h3>
 	</div>
 

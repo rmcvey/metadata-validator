@@ -5,6 +5,6 @@ CREATE TABLE `example_table` (
   `zip` varchar(10) NOT NULL,
   `date_start` datetime DEFAULT '2009-12-26 00:00:00',
   `date_end` datetime NOT NULL DEFAULT '2040-01-01 00:00:00' COMMENT '{"funcs":{"func":{"n":"date", "params":{"p1":"Y-m-d H:i:s","p2":{"func":{"n":"strtotime", "params":{"p1":"+2 years"}}}}}}}',
-  `entered_via` enum('web','csv', 'email') NOT NULL DEFAULT 'web',
+  `entered_via` enum('web','csv','email') NOT NULL DEFAULT 'web',
    PRIMARY KEY (`id`)
 ) ENGINE=MyISAM AUTO_INCREMENT=1 DEFAULT CHARSET=latin1;

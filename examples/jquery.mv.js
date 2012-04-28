@@ -1,5 +1,4 @@
-$.fn.mv_form = function(jobj)
-{
+$.fn.mv_form = function(jobj){
 	var json = eval(jobj);
 	var errors = [];
 	$(this).submit(function(){
@@ -56,7 +55,8 @@ $.fn.mv_form = function(jobj)
 			{
 				html_errors += "<li>"+errors[i]+"</li>";
 			}
-			$('#error_list').html("").html(html_errors).parent().show();
+			$('#error_list').html("").html(html_errors);
+			$('#error_list').parent().show();
 			is_good = false;
 		}
 		return is_good;

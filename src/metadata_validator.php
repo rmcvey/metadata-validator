@@ -25,7 +25,7 @@ class metadata_validator
 	*/
 	private function _init($credentials)
 	{
-		$this->user 		= $credentials['user'];
+		$this->user			= $credentials['user'];
 		$this->pass			= $credentials['password'];
 		$this->host			= $credentials['host'];
 		$this->safe_nullables	= array("date", "datetime");
@@ -223,13 +223,13 @@ class metadata_validator
 			foreach($intersections as $index => $item)
 			{
 				$row_value  	= $data[$item];
-				$col			= $this->cols[$index];
-				$rules 			= $col->get_json_validators();
-				$field_length 	= mb_strlen((string) $col->get_field(), '8bit');
-				$max_length 	= $col->get_field_length();
+				$column			= $this->cols[$index];
+				$rules 			= $column->get_json_validators();
+				$field_length 	= mb_strlen((string) $column->get_field(), '8bit');
+				$max_length 	= $column->get_field_length();
 				
 				//produces an is_* function using a datatype map between mysql and php
-				$php_type 		= $this->mysql_type_to_php($col->get_type());
+				$php_type 		= $this->mysql_type_to_php($column->get_type());
 				$dynamic_is_type_func = "is_$php_type";
 				$value_type		= gettype($row_value);
 				
@@ -237,28 +237,27 @@ class metadata_validator
 				*	These validations have been broken down into small units of work so they can 
 				*	be unit tested
 				*/
-
 				//Error if data is empty, not nullable, no default exists and it is not time
-				$this->check_empty_not_nullable_no_default_and_not_time($row_value, $col, $data);
+				$this->check_empty_not_nullable_no_default_and_not_time($row_value, $column, $data);
 				
 				//Error if data type different from column type and not primary key (could be null, would fail), or that it's the same type as the primary key
-				$this->check_istype_if_not_primary_xor_empty($col, $value_type, $row_value, $dynamic_is_type_func);
+				$this->check_istype_if_not_primary_xor_empty($column, $value_type, $row_value, $dynamic_is_type_func);
 				
 				//Check lengths against column maximums
-				$this->check_length_less_than_colmax($max_length, $field_length, $col);
+				$this->check_length_less_than_colmax($max_length, $field_length, $column);
 				
 				//Formats passed date into mysql format
-				$this->check_datetime_formatting($col, $row_value);
+				$this->check_datetime_formatting($column, $row_value);
 				
 				//Checks against array of valid options in enum row
-				$this->check_enumerable($row_value, $col);
+				$this->check_enumerable($row_value, $column);
 				
 				$data[$item] = $row_value;
 
 				//If special column validation metadata exists, check data against it
 				if(is_object($rules))
 				{
-					$data[$item] = $this->process_json_validators($col, $row_value, $rules);				
+					$data[$item] = $this->process_json_validators($column, $row_value, $rules);				
 				}
 			}	
 		}
