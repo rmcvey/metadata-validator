@@ -1,9 +1,7 @@
 Though the form_test.php file shows usage, here are the basics to getting this up and running
 
-* Run the sql file /sql/example.sql to create the table
+* Run the sql file sample_table.sql to create the table
 
-* Change the class to have your host and credentials (in the init() function)
+* Change the instantiation to your host and credentials (in the constructor)
 
-* Edit the form_test line that instantiates the metadata_validator class to point to your database and table name
-
-If you have specific questions about the classes methods, read through the class file
+If you have specific questions about the classes methods, read through the class file or message me
